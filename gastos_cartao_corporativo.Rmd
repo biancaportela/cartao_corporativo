@@ -1,11 +1,40 @@
 ---
-Título: "Gastos no cartão corporativo presidencial entre 2003 e 2022"
-Autor(a): "Bianca Portela"
-Atualizado em: "2023-01-17"
-output: html_document
+title: "Gastos no cartão corporativo presidencial entre 2003 e 2022"
+author: "Bianca Portela"
+date: "`r format(Sys.time())`"
+output:
+  rmdformats::readthedown:
+    highlight: tango
 ---
 
-```{r}
+# 1. Contexto
+
+No dia 12 de janeiro de 2023 foram divulgados os dados dos gastos do CPGF (Cartão de Pagamento do Governo Federal) [^1]. Por curiosidade resolvi analisar a planilha, a intenção inicial era fazer um comparativo entre os gastos do diversos governos com dados corrigidos pela inflação.
+
+Para tal, utilizo o pacote do R `deflateBR` [^2], que extrai dados dos principais índices de preços da API do IPEA, compatibiliza as datas mensais desses índices com as datas dos valores nominais da série e, por fim, deflaciona e retorna os valores corrigidos. O índice escolhido foi o IPCA (Índice Nacional de Preços ao Consumidor Amplo), por ser o principal índice brasileiro de inflação.
+
+- Os maiores gastos foram feitos durante o governo Lula e há considerável diminuição das compras a partir do governo Dilma/Temer.
+- A grande maioria das despesas é feita em hospedagem ou alimentação.
+- Hospedagem é a categoria com mais gastos, com o valor acumulado de R$ 99.546.417 (valores corrigidos pelo IPCA dez-2022) ao longo dos últimos 20 anos.
+- Desde o início da série foram gastos R$ 210.556.492  no CPGF.
+- Há de se destacar as despesas no Mercadinho La Palma LTDA ao longo dos anos: foram 6.351.730 reais gastos no estabelecimento, o local com maior soma de gastos durante a série.
+
+
+Entretanto, desde o começo da análise até a presente data, muitas dúvidas surgiram sobre a qualidade dos dados divulgados, o que põe em cheque qualquer tipo de comparação entre os governos. Segundo reportagem do UOL [^3], não se sabe se os gastos do presidente são referentes a apenas gastos individuais ou se englobam outras secretarias. Além disso, há inconsistências entre os dados apresentados na planilha e os divulgados no portal da transparência [^4].
+
+Ainda assim, continuei a análise por curiosidade. Entretanto, é interessante ter uma boa dose de ceticismo ao fazer comparações.
+
+
+[^1]: [A planilha de gastos pode ser encontrada aqui]("https://www.gov.br/secretariageral/pt-br/acesso-a-informacao/informacoes-classificadas-e-desclassificadas")
+[^2]: [Mais sobre o pacote]("https://fmeireles.com/blog/rstats/deflacionar-series-no-r-deflatebr/")
+[^3]: [Gasto de Bolsonaro com cartão corporativo foi quase o triplo do divulgado]("https://noticias.uol.com.br/politica/ultimas-noticias/2023/01/17/gastos-cartao-corporativo-maiores-divulgado.htm")
+[^4]: [Gastos de Bolsonaro com cartão corporativo podem ter sido maiores do que o divulgado, diz jornalista]("https://g1.globo.com/podcast/o-assunto/noticia/2023/01/17/gastos-de-bolsonaro-com-cartao-corporativo-podem-ter-sido-maiores-do-que-o-divulgado-diz-jornalista.ghtml")
+
+# 2. Pré-processamento dos dados
+
+## Carregando os pacotes
+
+```{r carregamento de pacotes, warning=FALSE, message=FALSE}
 #carregando as bibliotecas
 library(tidyverse)
 library(ggplot2)
@@ -14,82 +43,91 @@ library(stringr)
 library("skimr")
 library("scales")
 library(patchwork)
+library(knitr)
+library(kableExtra)
+library(htmltools)
 ```
 
-```{r}
+```{r notação científica}
 #retirando a notação cientifica
 options(scipen=999)
 ```
 
-```{r}
+```{r mudando diretório}
 #mudando o diretório
 setwd('C:/Users/SAMSUNG/OneDrive/Documentos/GitHub/cartao_corporativo')
 ```
 
 Os dados utilizados nessa análise podem ser encontrados [aqui]('https://www.gov.br/secretariageral/pt-br/acesso-a-informacao/informacoes-classificadas-e-desclassificadas?utm_source=substack&utm_medium=email').
 
-# Loading da base
+## Loading da base
 
-```{r}
+```{r carregando a bse}
 corporativo <- read.csv2('corporativo.csv', encoding='LATIN1')
 ```
 
-```{r}
-head(corporativo)
+```{r visualização do banco}
+corporativo %>% 
+  head(10) %>% 
+  kbl() %>% 
+  kable_styling(bootstrap_options = c("striped", "condensed", "responsive", "hover"), full_width = FALSE) 
+
 ```
 
 ## Procurando por duplicatas
 
-```{r}
-sum(duplicated(corporativo))
+```{r duplicatas}
+sum(duplicated(corporativo)) %>% 
+  kbl() %>% 
+  kable_styling(bootstrap_options = c("striped", "condensed", "responsive", "hover"), full_width = TRUE)
 ```
 
 Há 34578 linhas iguais no dataset. Por enquanto vamos deixá-las.
 
 ## Dropando colunas e linhas
 
-```{r}
-tail(corporativo)
+```{r tail da tabela}
+corporativo %>% 
+  tail(10) %>% 
+  kbl() %>% 
+  kable_styling(bootstrap_options = c("striped", "condensed", "responsive", "hover"), full_width = FALSE)
 ```
 
 -   removendo as duas ultimas linhas da nota de rodapé
 
-```{r}
+```{r rm linhas de rodapé}
 corporativo <- corporativo[-c(113341,113342 ), ]
 ```
 
 -   removendo as colunas `CPF.SERVIDOR`, `CPF.CNPJ.FORNECEDOR`, `TIPO` e `CDIC`
 
-```{r}
+```{r retirando colunas}
 corporativo = subset(corporativo, select = -c(CPF.SERVIDOR, CPF.CNPJ.FORNECEDOR, TIPO,CDIC ))
 ```
 
-# Passando `DATA.PGTO`para datetime
+## Passando `DATA.PGTO` para datetime
 
-```{r}
+```{r mudando para data}
 corporativo$DATA.PGTO = as.Date(corporativo$DATA.PGTO, format = '%d/%m/%Y')
 ```
 
-# Ajeitando a colunas valor
+## Ajeitando a coluna `VALOR`
 
 -   Tirando o R\$
 
-```{r}
+```{r limpando valor rs}
 corporativo$VALOR <- str_extract(corporativo$VALOR, "(\\d.+)")
 ```
 
 -   Substituindo o . por , e a , por .
 
-```{r}
+```{r ajeitando decimais}
 corporativo$VALOR <- gsub("[.]", "", corporativo$VALOR)
-```
 
-```{r}
 corporativo$VALOR <- str_replace(corporativo$VALOR, "," , ".")
-
 ```
 
-# Convertendo VALOR para número
+## Convertendo `VALOR` para número
 
 ```{r}
 corporativo$VALOR <- as.numeric(corporativo$VALOR)
@@ -98,7 +136,9 @@ corporativo$VALOR <- as.numeric(corporativo$VALOR)
 ## Checando dados faltantes
 
 ```{r}
-sum(is.na(corporativo))
+sum(is.na(corporativo)) %>% 
+  kbl() %>% 
+  kable_styling(bootstrap_options = c("striped", "condensed", "responsive", "hover"), full_width = TRUE)
 ```
 
 Há dados faltantes
@@ -107,25 +147,39 @@ Há dados faltantes
 skim_without_charts(corporativo)
 ```
 
-Dropando
+**Dropando:**
 
 ```{r}
 corporativo <-  corporativo %>% drop_na()
 ```
 
-# Deflacionamento dos dados
+# 3. Deflacionamento dos dados
+
+O índice de preços ao consumidor mostra o custo de uma cesta de bens e serviços em relação ao custo da mesma cesta no ano-base. Ele é usado para medir o nível geral de preços da economia e é justamente a variação percentual desse índice que mede a taxa de inflação. Dessa maneira, ele é usado para monitorar mudanças no custo de vida ao longo do tempo. Quando o índice aumenta, as famílias precisam gastar mas dinheiro para manter o mesmo padrão de vida.Assim, se a taxa de inflação do preços ao consumidor é de 10%,  por exemplo,  os preços dos artigos que as famílias estão comprando estão subindo 10% ao ano.
+
+É importante corrigir os valores monetários, pois não é possível comparar de maneira válida o poder aquisitivo em dois momentos diferentes do tempo.Para comparar valores monetários do passado com os valores correntes é preciso que o valor de antes seja inflacionado por meio de um índice de preços. Isso porque, preços, PIB, componentes de despesa etc. são todos medidos em termos de valores correntes de mercado, e são variáveis nominais. Variáveis nominais são aquelas que são medidas em unidades monetárias, enquanto variáveis reais são medidas em unidades físicas (e o embate entre variáveis reais e nominais é chamado de dicotomia clássica, o que é outro assunto...).
+
+Embora variáveis nominais sejam úteis por nos permitir a soma de diferentes tipos de bens e serviços, não é possível comparar valores nominais em dois pontos distintos do tempo. Pegue o PIB, por exemplo. Não há como comparar dois valores de PIB em anos distintos sem corrigi-los, por que se o valor corrente do mercado e dos bens e serviços mudar com o tempo não poderemos saber se essa mudança reflete mudanças nas quantidades de bens e serviços produzidas, mudanças em seus preços ou uma combinação dos dois fatores. De maneira mais clara: aumento no valor corrente do PIB pode tanto ser expansão da produção de bens e serviços quanto simplesmente uma inflação que aumentou o preço dos produtos.
+
+Dos vários índices de preço ao consumidor calculados no Brasil, o mais popular é o IPCA (Índice Nacional de Preços ao Consumidor Amplo), que é o que usaremos na análise. Para deflacionar os dados utilizamos o pacote `deflateBR` que extrai os dados monetários da API do IPEA.
+
+
 
 ```{r}
 corporativo$VALOR_DEF = ipca(corporativo$VALOR, corporativo$DATA.PGTO, "12/2022")
 ```
 
-## Estatísticas gerais
+# 4. Estatísticas gerais
 
 ```{r}
 corporativo %>%
   select(VALOR_DEF) %>%
-  summarize(media = mean(VALOR_DEF), max = max(VALOR_DEF), min = min(VALOR_DEF), valor_quartil = quantile(VALOR_DEF, c(0.25, 0.5, 0.75)), q = c(0.25, 0.5, 0.75) )
+  summarize(total = sum(VALOR_DEF), media = mean(VALOR_DEF), max = max(VALOR_DEF), min = min(VALOR_DEF), valor_quartil = quantile(VALOR_DEF, c(0.25, 0.5, 0.75)), q = c(0.25, 0.5, 0.75) ) %>%
+  kbl() %>% 
+  kable_styling(bootstrap_options = c("striped", "condensed", "responsive", "hover"), full_width = TRUE) 
 ```
+
+# 5. Gastos no cartão por período
 
 ### Gastos no cartão corporativo por dia
 
@@ -133,14 +187,14 @@ corporativo %>%
 p <- ggplot(data = corporativo, aes(x = DATA.PGTO, y = VALOR_DEF)) +
   geom_line(color = "darkorchid4", size = 1) +
   labs(title = 'Gastos no cartão corporativo por dia 2003-2022',
-       subtitle = 'Dados indexidados pelo IPCA Dez-2022',
+       subtitle = 'Dados indexados pelo IPCA Dez-2022',
        y = '',
        x = 'Data') +
   scale_y_continuous(labels  = label_number( accuracy = 1, big.mark = '.',
                                              decimal.mark = ','))
 ```
 
-```{r fig.asp= 0.5, fig.width= 10, out.width='100%'}
+```{r}
 p + theme_classic()
 ```
 
@@ -153,12 +207,12 @@ corporativo_year <- corporativo %>%
 
 ```
 
-```{r fig.asp= 0.5, fig.width= 10, out.width='100%'}
+```{r}
 ggplot(data = corporativo_year, aes(x = year, y = summary_variable)) +
   geom_line(color = "darkorchid4", size = 1) +
 
   labs(title = 'Soma dos gastos do cartão corporativo por ano 2003-2022',
-       subtitle = 'Dados indexidados pelo IPCA Dez-2022',
+       subtitle = 'Dados indexados pelo IPCA Dez-2022',
        y = '',
        x = 'Data') + 
     scale_y_continuous(labels  = label_number(accuracy = 1))+ theme_classic()
@@ -166,10 +220,12 @@ ggplot(data = corporativo_year, aes(x = year, y = summary_variable)) +
 ```
 
 ```{r}
-corporativo_year
+corporativo_year %>% 
+  kbl() %>% 
+  kable_styling(bootstrap_options = c("striped", "condensed", "responsive"), full_width = FALSE)
 ```
 
-## Gasto agrupados por subelemento de despesa
+# 6. Gastos agrupados por subelemento de despesa
 
 ### Geral
 
@@ -192,12 +248,16 @@ corporativo$SUBELEMENTO.DE.DESPESA <- recode(corporativo$SUBELEMENTO.DE.DESPESA,
 corporativo$SUBELEMENTO.DE.DESPESA <- recode(corporativo$SUBELEMENTO.DE.DESPESA,"SERVI?OS DE TELECOMUNICA??S" = "SERVIÇOS DE TELECOMUNICAÇÕES")
 corporativo$SUBELEMENTO.DE.DESPESA <- recode(corporativo$SUBELEMENTO.DE.DESPESA,"MATERIAL DE LIMPEZA E PROD. DE HIGIENIZA??" = "MATERIAL DE LIMPEZA E PROD. DE HIGIENIZAÇÃO")
 
+```
 
+```{r}
+gastos_categ %>% kbl() %>% 
+  kable_styling(bootstrap_options = c("striped", "condensed", "responsive", "hover"), full_width = TRUE)
 ```
 
 -   Agora podemos plotar um gráfico
 
-```{r fig.asp= 0.5, fig.width= 10, out.width='100%'}
+```{r}
 gastos_categ %>% 
   mutate(SUBELEMENTO.DE.DESPESA = fct_reorder(SUBELEMENTO.DE.DESPESA,soma_def ))%>%
   ggplot(aes(x = SUBELEMENTO.DE.DESPESA, y = soma_def, 
@@ -208,146 +268,527 @@ gastos_categ %>%
   labs( y = '',
        x = '') +
   ggtitle('Soma das 5 categorias com mais gastos 2003-2022',
-       subtitle = 'Dados indexidados pelo IPCA Dez-2022')+
+       subtitle = 'Dados indexados pelo IPCA Dez-2022')+
   scale_y_continuous(labels  = label_number(accuracy = 1))+
   theme_classic() 
 ```
 
-```{r}
-#editando as labels
-```
-
 ### Gastos por categoria dividido por governo
 
-```{r fig.asp= 0.5, fig.width= 10, out.width='100%'}
-#gastos do governo lula i 
+### Lula I {.tabset .tabset-fade}
 
-plula_i<- corporativo %>% group_by(SUBELEMENTO.DE.DESPESA) %>% 
+#### Tabela
+
+```{r lula i tabela}
+#gastos do governo lula i 
+tlula_1 <-  corporativo %>% group_by(SUBELEMENTO.DE.DESPESA) %>% 
   subset(DATA.PGTO >= "2003-01-02" & DATA.PGTO <= "2006-12-31",) %>% 
   summarise(
   soma_def = sum(VALOR_DEF, na.rm = TRUE)) %>% 
   arrange(-soma_def) %>% 
-  head(5) %>% mutate(SUBELEMENTO.DE.DESPESA = fct_reorder(SUBELEMENTO.DE.DESPESA, soma_def ))%>%
+  head(5) 
+  
+```
+
+```{r, echo=FALSE}
+tlula_1 %>%  kbl() %>% 
+  kable_styling(bootstrap_options = c("striped", "condensed", "responsive", "hover"), full_width = FALSE)
+```
+
+#### Gráfico
+
+```{r}
+tlula_1 %>% mutate(SUBELEMENTO.DE.DESPESA = fct_reorder(SUBELEMENTO.DE.DESPESA, soma_def ))%>%
   ggplot(aes(x = SUBELEMENTO.DE.DESPESA, y = soma_def, 
              fill = factor(ifelse(SUBELEMENTO.DE.DESPESA=='LOCAÇÃO DE MEIOS DE TRANSPORTE', '...', '')))) +
   geom_bar(stat = 'identity', show.legend = FALSE) +
   scale_fill_manual(name = 'soma_def', values= c('#9E67C3', '#68228b')) +
   coord_flip() +
   labs(title = 'Top 5 categorias com mais gastos durante Lula I',
-       subtitle = 'Dados indexidados pelo IPCA Dez-2022',
+       subtitle = 'Dados indexados pelo IPCA Dez-2022',
        y = '',
        x = '') +
   scale_y_continuous(labels  = label_number(accuracy = 1))+
   theme_classic() 
-  
 ```
 
-### 
+### Lula II {.tabset .tabset-fade}
 
-```{r fig.asp= 0.5, fig.width= 10, out.width='100%'}
+#### Tabela
+
+```{r}
 #gastos do governo lula ii
-
- plula_2 <- corporativo %>% group_by(SUBELEMENTO.DE.DESPESA) %>% 
+tlula_2 <-  corporativo %>% group_by(SUBELEMENTO.DE.DESPESA) %>% 
   subset(DATA.PGTO >= "2007-01-01" & DATA.PGTO <= "2010-12-31",) %>% 
   summarise(
   soma_def = sum(VALOR_DEF, na.rm = TRUE)) %>% 
   arrange(-soma_def) %>% 
-  head(5) %>% mutate(SUBELEMENTO.DE.DESPESA = fct_reorder(SUBELEMENTO.DE.DESPESA, soma_def ))%>%
+  head(5) 
+```
+
+```{r, echo=FALSE}
+tlula_2 %>%  kbl() %>% 
+  kable_styling(bootstrap_options = c("striped", "condensed", "responsive", "hover"), full_width = FALSE)
+```
+
+#### Gráfico
+
+```{r}
+tlula_2 %>% mutate(SUBELEMENTO.DE.DESPESA = fct_reorder(SUBELEMENTO.DE.DESPESA, soma_def ))%>%
   ggplot(aes(x = SUBELEMENTO.DE.DESPESA, y = soma_def, 
              fill = factor(ifelse(SUBELEMENTO.DE.DESPESA=='HOSPEDAGENS', '...', '')))) +
   geom_bar(stat = 'identity', show.legend = FALSE) +
   scale_fill_manual(name = 'soma_def', values= c('#9E67C3', '#68228b')) +
   coord_flip() +
   labs(title = 'Top 5 categorias com mais gastos durante Lula II',
-       subtitle = 'Dados indexidados pelo IPCA Dez-2022',
+       subtitle = 'Dados indexados pelo IPCA Dez-2022',
        y = '',
        x = '') +
   scale_y_continuous(labels  = label_number(accuracy = 1))+
   theme_classic() 
 ```
 
-### 
+### Dilma {.tabset .tabset-fade}
 
-```{r fig.asp= 0.5, fig.width= 10, out.width='100%'}
+#### Tabela
+
+```{r}
 #gastos do governo dilma
 
- pdilma <- corporativo %>% group_by(SUBELEMENTO.DE.DESPESA) %>% 
+ tdilma <- corporativo %>% group_by(SUBELEMENTO.DE.DESPESA) %>% 
   subset(DATA.PGTO >= "2011-01-01" & DATA.PGTO <= "2016-08-31",) %>% 
   summarise(
   soma_def = sum(VALOR_DEF, na.rm = TRUE)) %>% 
   arrange(-soma_def) %>% 
-  head(5) %>% mutate(SUBELEMENTO.DE.DESPESA = fct_reorder(SUBELEMENTO.DE.DESPESA, soma_def ))%>%
+  head(5) 
+```
+
+```{r, echo=FALSE}
+  tdilma%>% 
+  kbl() %>% 
+  kable_styling(bootstrap_options = c("striped", "condensed", "responsive", "hover"), full_width = FALSE)
+```
+
+#### Gráfico
+
+```{r}
+tdilma %>% mutate(SUBELEMENTO.DE.DESPESA = fct_reorder(SUBELEMENTO.DE.DESPESA, soma_def ))%>%
   ggplot(aes(x = SUBELEMENTO.DE.DESPESA, y = soma_def, 
              fill = factor(ifelse(SUBELEMENTO.DE.DESPESA=='HOSPEDAGENS', '...', '')))) +
   geom_bar(stat = 'identity', show.legend = FALSE) +
   scale_fill_manual(name = 'soma_def', values= c('#9E67C3', '#68228b')) +
   coord_flip() +
   labs(title = 'Top 5 categorias com mais gastos durante gov Dilma',
-       subtitle = 'Dados indexidados pelo IPCA Dez-2022',
+       subtitle = 'Dados indexados pelo IPCA Dez-2022',
        y = '',
        x = '') +
   scale_y_continuous(labels  = label_number(accuracy = 1))+
   theme_classic() 
 ```
 
-### 
+### Temer {.tabset .tabset-fade}
 
-```{r fig.asp= 0.5, fig.width= 10, out.width='100%'}
+#### Tabela
+
+```{r}
 #gastos do governo temer
 
- ptemer <- corporativo %>% group_by(SUBELEMENTO.DE.DESPESA) %>% 
+ ttemer <- corporativo %>% group_by(SUBELEMENTO.DE.DESPESA) %>% 
   subset(DATA.PGTO >= "2016-09-01" & DATA.PGTO <= "2018-12-31",) %>% 
   summarise(
   soma_def = sum(VALOR_DEF, na.rm = TRUE)) %>% 
   arrange(-soma_def) %>% 
-  head(5) %>% mutate(SUBELEMENTO.DE.DESPESA = fct_reorder(SUBELEMENTO.DE.DESPESA, soma_def ))%>%
+  head(5)
+```
+
+```{r, echo=FALSE}
+ttemer %>% 
+  kbl() %>% 
+  kable_styling(bootstrap_options = c("striped", "condensed", "responsive", "hover"), full_width = FALSE)
+```
+
+#### Gráfico
+
+```{r}
+ttemer %>% mutate(SUBELEMENTO.DE.DESPESA = fct_reorder(SUBELEMENTO.DE.DESPESA, soma_def ))%>%
   ggplot(aes(x = SUBELEMENTO.DE.DESPESA, y = soma_def, 
              fill = factor(ifelse(SUBELEMENTO.DE.DESPESA=='HOSPEDAGENS', '...', '')))) +
   geom_bar(stat = 'identity', show.legend = FALSE) +
   scale_fill_manual(name = 'soma_def', values= c('#9E67C3', '#68228b')) +
   coord_flip() +
   labs(title = 'Top 5 categorias com mais gastos durante Temer',
-       subtitle = 'Dados indexidados pelo IPCA Dez-2022',
+       subtitle = 'Dados indexados pelo IPCA Dez-2022',
        y = '',
        x = '') +
   scale_y_continuous(labels  = label_number(accuracy = 1))+
    theme_classic() 
 ```
 
-### 
+### Bolsonaro {.tabset .tabset-fade} 
 
-```{r fig.asp= 0.5, fig.width= 10, out.width='100%'}
+#### Tabela
+
+```{r}
 #gastos do governo bolsonaro
 
- pbolsonaro <- corporativo %>% group_by(SUBELEMENTO.DE.DESPESA) %>% 
+ tbolsonaro <- corporativo %>% group_by(SUBELEMENTO.DE.DESPESA) %>% 
   subset(DATA.PGTO >= "2019-01-01" & DATA.PGTO <= "2021-12-31",) %>% 
   summarise(
   soma_def = sum(VALOR_DEF, na.rm = TRUE)) %>% 
   arrange(-soma_def) %>% 
-  head(5) %>% mutate(SUBELEMENTO.DE.DESPESA = fct_reorder(SUBELEMENTO.DE.DESPESA, soma_def ))%>%
+  head(5)
+```
+
+```{r echo=FALSE}
+tbolsonaro %>% 
+  kbl() %>% 
+  kable_styling(bootstrap_options = c("striped", "condensed", "responsive", "hover"), full_width = FALSE)
+```
+
+#### Gráfico
+
+```{r}
+tbolsonaro %>% mutate(SUBELEMENTO.DE.DESPESA = fct_reorder(SUBELEMENTO.DE.DESPESA, soma_def ))%>%
   ggplot(aes(x = SUBELEMENTO.DE.DESPESA, y = soma_def, 
              fill = factor(ifelse(SUBELEMENTO.DE.DESPESA=='HOSPEDAGENS', '...', '')))) +
   geom_bar(stat = 'identity', show.legend = FALSE) +
   scale_fill_manual(name = 'soma_def', values= c('#9E67C3', '#68228b')) +
   coord_flip() +
   labs(title = 'Top 5 categorias com mais gastos durante gov. Bolsonaro',
-       subtitle = 'Dados indexidados pelo IPCA Dez-2022',
+       subtitle = 'Dados indexados pelo IPCA Dez-2022',
        y = '',
        x = '') +
   scale_y_continuous(labels  = label_number(accuracy = 1))+
    theme_classic() 
 ```
 
-```{r fig.asp= 0.5, fig.width= 10, out.width='100%'}
-(plula_i / plula_2)
-```
-
-```{r fig.asp= 0.5, fig.width= 10, out.width='100%'}
-(pdilma / ptemer) 
-```
-
-```{r fig.asp= 0.5, fig.width= 10, out.width='100%'}
-pbolsonaro
-```
-
 ## Olhando os 3 picos de gastos 2003, 2014 e 2021
+
+### 2003 {.tabset .tabset-fade}
+
+#### Tabela
+
+```{r}
+corporativo %>% 
+  subset(DATA.PGTO >= "2003-01-01" & DATA.PGTO <= "2003-12-31") %>% 
+  group_by(SUBELEMENTO.DE.DESPESA) %>% 
+  summarise(
+  soma_def = sum(VALOR_DEF, na.rm = TRUE)) %>% 
+  arrange(-soma_def) %>% 
+  head(10)%>% 
+  kbl() %>% 
+  kable_styling(bootstrap_options = c("striped", "condensed", "responsive", "hover"), full_width = FALSE)
+  
+```
+
+#### Gráfico: Locação
+
+```{r}
+corporativo %>% 
+  subset(DATA.PGTO >= "2003-01-01" & DATA.PGTO <= "2003-12-31") %>% 
+  subset(corporativo$SUBELEMENTO.DE.DESPESA == 'LOCAÇÃO DE MEIOS DE TRANSPORTE',) %>% 
+  ggplot(aes(x = DATA.PGTO, y = VALOR_DEF)) +
+  geom_line(color = "darkorchid4", size = 0.4, na.rm=TRUE) +
+  labs(title = 'Gastos no cartão corporativo em 2003: Locação de Meios de Transporte',
+       subtitle = 'Dados indexados pelo IPCA Dez-2022',
+       y = '',
+       x = 'Data') + 
+    scale_y_continuous(labels  = label_number(accuracy = 1))+ theme_classic()
+  
+```
+
+Parece que em 2003 os maiores gastos foram por volta de dezembro (talvez esteja relacionado com as festas do fim de ano
+
+Os dois maiores gastos em 2003 foram com Locação de Meios de Transporte (R\$ 9 417 613,97) e com Hospedagens (R\$ 4 139 948,09). Todos os presidentes após Lula tiveram grandes gastos com hospedagem, mas locação de meios de transporte é algo que se caracteriza do governo Lula, sendo a categoria que tem mais gastos tanto no primeiro quanto no segundo governo.
+
+### Teve um dia que o gasto chegou a quase 600k
+
+```{r}
+corporativo %>% 
+  subset(corporativo$VALOR_DEF >= 600000,)%>% 
+  kbl() %>% 
+  kable_styling(bootstrap_options = c("striped", "condensed", "responsive", "hover"), full_width = FALSE)
+```
+
+Gasto com hotelaria, em resort.
+
+```{r}
+  corporativo %>% 
+  subset(corporativo$VALOR_DEF >= 300000,)%>% 
+  kbl() %>% 
+  kable_styling(bootstrap_options = c("striped", "condensed", "responsive", "hover"), full_width = FALSE)
+```
+
+O outro pico diário é de 2021: foram gastos 364307.5 (valores corrigidos pela inflação) em hotelaria.
+
+### 2014 {.tabset .tabset-fade}
+
+#### Tabela Geral
+
+```{r}
+corporativo %>% 
+  subset(DATA.PGTO >= "2014-01-01" & DATA.PGTO <= "2014-12-31") %>% 
+  group_by(SUBELEMENTO.DE.DESPESA) %>% 
+  summarise(
+  soma_def = sum(VALOR_DEF, na.rm = TRUE)) %>% 
+  arrange(-soma_def) %>% 
+  head(10)%>% 
+  kbl() %>% 
+  kable_styling(bootstrap_options = c("striped", "condensed", "responsive", "hover"), full_width = FALSE)
+```
+
+#### Gráfico: Hospedagens
+
+```{r}
+corporativo %>% 
+  subset(DATA.PGTO >= "2014-01-01" & DATA.PGTO <= "2014-12-31") %>% 
+  subset(corporativo$SUBELEMENTO.DE.DESPESA == 'HOSPEDAGENS',) %>% 
+  ggplot(aes(x = DATA.PGTO, y = VALOR_DEF)) +
+  geom_line(color = "darkorchid4", size = 0.4, na.rm=TRUE) +
+  labs(title = 'Gastos no cartão corporativo em 2014: HOSPEDAGENS',
+       subtitle = 'Dados indexados pelo IPCA Dez-2022',
+       y = '',
+       x = 'Data') + 
+    scale_y_continuous(labels  = label_number(accuracy = 1))+ theme_classic()
+```
+
+### 2021 {.tabset .tabset-fade}
+
+#### Tabela
+
+```{r}
+corporativo %>% 
+  subset(DATA.PGTO >= "2021-01-01" & DATA.PGTO <= "2021-12-31") %>% 
+  group_by(SUBELEMENTO.DE.DESPESA) %>% 
+  summarise(
+  soma_def = sum(VALOR_DEF, na.rm = TRUE)) %>% 
+  arrange(-soma_def) %>% 
+  head(10) %>% 
+  kbl() %>% 
+  kable_styling(bootstrap_options = c("striped", "condensed", "responsive", "hover"), full_width = FALSE)
+```
+
+#### Gráfico: Hospedagem
+
+```{r}
+corporativo %>% 
+  subset(DATA.PGTO >= "2021-01-01" & DATA.PGTO <= "2021-12-31") %>% 
+  subset(corporativo$SUBELEMENTO.DE.DESPESA == 'HOSPEDAGENS',) %>% 
+  ggplot(aes(x = DATA.PGTO, y = VALOR_DEF)) +
+  geom_line(color = "darkorchid4", size = 0.4, na.rm=TRUE) +
+  labs(title = 'Gastos no cartão corporativo em 2021: HOSPEDAGENS',
+       subtitle = 'Dados indexados pelo IPCA Dez-2022',
+       y = '',
+       x = 'Data') + 
+    scale_y_continuous(labels  = label_number(accuracy = 1))+ theme_classic()
+```
+
+Novamente, hospedagem com os maiores gastos, seguido por gastos com alimentação.
+
+# 7. Em quais estabelecimentos os presidentes mais compraram?
+
+### Acumulativo da série:
+
+```{r}
+ corporativo %>% 
+  group_by(NOME.FORNECEDOR)%>% 
+  summarise(frequencia = n(), total = sum(VALOR_DEF), media = mean(VALOR_DEF),max = max(VALOR_DEF)) %>% 
+  arrange(-total) %>% 
+  head(5)  %>% 
+  kbl() %>% 
+  kable_styling(bootstrap_options = c("striped", "condensed", "responsive", "hover"), full_width = FALSE)
+```
+
+### Lula I {.tabset .tabset-fade}
+
+#### Tab freq
+
+```{r}
+tab_freq_lula1 <- corporativo %>% 
+  subset(DATA.PGTO >= "2003-01-02" & DATA.PGTO <= "2006-12-31",) %>%
+  group_by(NOME.FORNECEDOR)%>% 
+  summarise(frequencia = n(), total = sum(VALOR_DEF), media = mean(VALOR_DEF),max = max(VALOR_DEF)) %>% 
+  arrange(-frequencia) %>% 
+  head(5)
+```
+
+```{r, echo=FALSE}
+tab_freq_lula1 %>% 
+  kbl() %>% 
+  kable_styling(bootstrap_options = c("striped", "condensed", "responsive", "hover"), full_width = FALSE)
+```
+
+#### Gráfico
+
+```{r}
+tab_freq_lula1 %>%
+  ggplot(aes(NOME.FORNECEDOR, frequencia)) +
+  geom_bar(stat = 'identity', fill = "darkorchid4") +
+  coord_flip() +
+  labs(title = 'Top 5 estabelecimentos com maior frequência de compra: Lula I',
+       subtitle = 'Dados indexados pelo IPCA Dez-2022',
+       y = '',
+       x = '') +
+  theme_classic()
+```
+
+### Lula II {.tabset .tabset-fade}
+
+#### Tab freq
+
+```{r}
+tab_freq_lula2 <- corporativo %>% 
+  subset(DATA.PGTO >= "2007-01-01" & DATA.PGTO <= "2010-12-31",) %>% 
+  group_by(NOME.FORNECEDOR)%>% 
+  summarise(frequencia = n(), total = sum(VALOR_DEF), media = mean(VALOR_DEF),max = max(VALOR_DEF)) %>% 
+  arrange(-frequencia) %>% 
+  head(5) 
+```
+
+```{r, echo=FALSE}
+tab_freq_lula2 %>% 
+  kbl() %>% 
+  kable_styling(bootstrap_options = c("striped", "condensed", "responsive", "hover"), full_width = FALSE)
+```
+
+#### Gráfico
+
+```{r}
+tab_freq_lula2 %>%
+  ggplot(aes(NOME.FORNECEDOR, frequencia)) +
+  geom_bar(stat = 'identity', fill = "darkorchid4") +
+  coord_flip() +
+  labs(title = 'Top 5 estabelecimentos com maior frequência de compra: Lula II',
+       subtitle = 'Dados indexados pelo IPCA Dez-2022',
+       y = '',
+       x = '') +
+  theme_classic()
+```
+
+### Dilma {.tabset .tabset-fade}
+
+#### Tab freq
+
+```{r}
+tab_freq_dilma <- corporativo %>% 
+  subset(DATA.PGTO >= "2011-01-01" & DATA.PGTO <= "2016-08-31",) %>% 
+  group_by(NOME.FORNECEDOR)%>% 
+  summarise(frequencia = n(), total = sum(VALOR_DEF), media = mean(VALOR_DEF),max = max(VALOR_DEF)) %>% 
+  arrange(-frequencia) %>% 
+  head(5)
+```
+
+```{r, echo=FALSE}
+tab_freq_dilma %>% 
+  kbl() %>% 
+  kable_styling(bootstrap_options = c("striped", "condensed", "responsive", "hover"), full_width = FALSE)
+```
+
+#### Gráfico
+
+```{r}
+tab_freq_dilma %>% 
+  ggplot(aes(NOME.FORNECEDOR, frequencia)) +
+  geom_bar(stat = 'identity', fill = "darkorchid4") +
+  coord_flip() +
+  labs(title = 'Top 5 estabelecimentos com maior frequência de compra: Dilma',
+       subtitle = 'Dados indexados pelo IPCA Dez-2022',
+       y = '',
+       x = '') +
+  theme_classic()
+```
+
+### Temer {.tabset .tabset-fade}
+
+#### Tab freq
+
+```{r}
+tab_freq_temer <- corporativo %>% 
+  subset(DATA.PGTO >= "2016-09-01" & DATA.PGTO <= "2018-12-31",) %>% 
+  group_by(NOME.FORNECEDOR)%>% 
+  summarise(frequencia = n(), total = sum(VALOR_DEF), media = mean(VALOR_DEF),max = max(VALOR_DEF)) %>% 
+  arrange(-frequencia) %>% 
+  head(5)
+```
+
+```{r, echo=FALSE}
+tab_freq_temer %>% 
+  kbl() %>% 
+  kable_styling(bootstrap_options = c("striped", "condensed", "responsive", "hover"), full_width = FALSE)
+```
+
+#### Gráfico
+
+```{r}
+tab_freq_temer%>% 
+  ggplot(aes(NOME.FORNECEDOR, frequencia)) +
+  geom_bar(stat = 'identity', fill = "darkorchid4") +
+  coord_flip() +
+  labs(title = 'Top 5 estabelecimentos com maior frequência de compra: Temer',
+       subtitle = 'Dados indexados pelo IPCA Dez-2022',
+       y = '',
+       x = '') +
+  theme_classic()
+```
+
+### Bolsonaro {.tabset .tabset-fade}
+
+#### Tab freq
+
+```{r}
+tab_freq_bolsonaro <- corporativo %>% 
+  subset(DATA.PGTO >= "2019-01-01" & DATA.PGTO <= "2021-12-31",) %>% 
+  group_by(NOME.FORNECEDOR)%>% 
+  summarise(frequencia = n(), total = sum(VALOR_DEF), media = mean(VALOR_DEF),max = max(VALOR_DEF)) %>% 
+  arrange(-frequencia) %>% 
+  head(5)
+```
+
+```{r, echo=FALSE}
+tab_freq_temer %>% 
+  kbl() %>% 
+  kable_styling(bootstrap_options = c("striped", "condensed", "responsive", "hover"), full_width = FALSE)
+```
+
+#### Gráfico
+
+```{r}
+tab_freq_bolsonaro%>% 
+  ggplot(aes(NOME.FORNECEDOR, frequencia)) +
+  geom_bar(stat = 'identity', fill = "darkorchid4") +
+  coord_flip() +
+  labs(title = 'Top 5 estabelecimentos com maior frequência de compra: Bolsonaro',
+       subtitle = 'Dados indexados pelo IPCA Dez-2022',
+       y = '',
+       x = '') +
+  theme_classic()
+```
+
+Os governos Lula e Dilma foram marcados por gastos frequentes em hotéis enquanto nos governos Temer e Bolsonaro os gastos mais frequentes são com alimentação.
+
+O Mercadinho La Palma parece ser um favorito entre os presidentes.
+
+Tanto é um favorito que nos últimos 20 anos foi quem mais faturou com gastos no cartão corporativo de 6.351.730 reais:
+
+```{r}
+corporativo %>% 
+  group_by(NOME.FORNECEDOR)%>% 
+  summarise(frequencia = n(), total = sum(VALOR_DEF), media = mean(VALOR_DEF),max = max(VALOR_DEF)) %>% 
+  arrange(-total) %>% 
+  head(5) %>% 
+  kbl() %>% 
+  kable_styling(bootstrap_options = c("striped", "condensed", "responsive", "hover"), full_width = FALSE)
+```
+
+## O Mercadinho La Palma LTDA ao longo dos anos...
+
+```{r}
+ corporativo %>% 
+  subset(corporativo$NOME.FORNECEDOR == 'MERCADINHO LA PALMA LTDA',) %>% 
+  group_by(year = lubridate::floor_date(DATA.PGTO, "year")) %>%
+  summarize(total = sum(VALOR_DEF, na.rm  = TRUE)) %>% 
+  ggplot(aes(x = year, y = total)) +
+  geom_line(color = "darkorchid4", size = 0.4, na.rm=TRUE) +
+  labs(title = 'Gastos no cartão corporativo no Mercadinho La Palma ao longo dos anos',
+       subtitle = 'Dados indexados pelo IPCA Dez-2022')  + theme_classic()
+```
